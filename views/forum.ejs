@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Forum - learnEnglish</title>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+    />
+    <link rel="stylesheet" href="/styles/typography.css" />
+    <link rel="stylesheet" href="/styles/forum.css" />
+  </head>
+  <body>
+    <header class="header">
+      <%- include('partials/header', { user: name}) %>
+    </header>
+
+    <div class="forum-container">
+      <div class="forum-header">
+        <h1>Forum</h1>
+      </div>
+      <div id="posts"></div>
+    </div>
+
+    <!-- Floating Button -->
+    <button id="create-post-button" class="floating-button">
+      <i class="fas fa-plus"></i>
+    </button>
+
+    <!-- Modal -->
+    <div id="new-post-modal">
+      <button class="close-button" onclick="closeModal()">&times;</button>
+      <form id="new-post-form">
+        <input type="text" id="title" placeholder="Post Title" required />
+        <textarea id="content" placeholder="Post Content" required></textarea>
+        <button type="submit">Submit</button>
+      </form>
+    </div>
+
+    <footer class="footer"><%- include('partials/footer'); -%></footer>
+    <script>
+      const loggedInUser = "<%= name %>";
+
+      async function fetchPosts() {
+        const response = await fetch("/api/posts");
+        const posts = await response.json();
+        const postContainer = document.getElementById("posts");
+        postContainer.innerHTML = "";
+        posts.forEach((post) => addPostToDOM(post));
+      }
+
+      function addPostToDOM(post) {
+        const isAuthor = loggedInUser === post.author;
+        const timePosted = new Date(post.timestamp).toLocaleString();
+
+        const postCard = `
+    <div class="post-card" id="post-${post._id}">
+      <h3>${post.title}</h3>
+      <p>${post.content}</p>
+      <div class="post-meta">
+        Posted by <strong>${post.author}</strong> on ${timePosted}
+      </div>
+      <div class="post-actions">
+        <div class="vote-controls">
+          <i class="fas fa-arrow-up" onclick="vote('${
+            post._id
+          }', 'upvote')"></i>
+          <span>${post.votes}</span>
+          <i class="fas fa-arrow-down" onclick="vote('${
+            post._id
+          }', 'downvote')"></i>
+        </div>
+        ${
+          isAuthor
+            ? `<button class="delete-post" onclick="deletePost('${post._id}')"><i class="fas fa-trash"></i> Delete</button>`
+            : ""
+        }
+      </div>
+      <div class="replies">
+        <h4>Replies:</h4>
+        <div id="replies-${post._id}">
+          ${post.replies
+            .map(
+              (reply) => `
+            <div class="reply" id="reply-${reply._id}">
+              <p>${reply.content}</p>
+              <div class="reply-meta">
+                <span>Posted by <strong>${reply.author}</strong> on ${new Date(
+                reply.timestamp
+              ).toLocaleString()}</span>
+                ${
+                  loggedInUser === reply.author
+                    ? `<button class="delete-reply" onclick="deleteReply('${post._id}', '${reply._id}')"><i class="fas fa-trash"></i> Delete</button>`
+                    : ""
+                }
+              </div>
+            </div>
+          `
+            )
+            .join("")}
+        </div>
+        <form class="reply-form" onsubmit="addReply(event, '${post._id}')">
+          <textarea placeholder="Write a reply..." required></textarea>
+          <button type="submit">Reply</button>
+        </form>
+      </div>
+    </div>
+  `;
+        document
+          .getElementById("posts")
+          .insertAdjacentHTML("beforeend", postCard);
+      }
+
+      async function vote(postId, action) {
+        const response = await fetch(`/api/posts/${postId}/vote`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        });
+
+        if (response.ok) {
+          const updatedPost = await response.json();
+          document.querySelector(`#post-${postId} span`).textContent =
+            updatedPost.votes;
+        }
+      }
+
+      async function deletePost(postId) {
+        try {
+          const response = await fetch(`/api/posts/${postId}`, {
+            method: "DELETE",
+          });
+
+          if (response.ok) {
+            // Remove the post from the DOM
+            document.getElementById(`post-${postId}`).remove();
+            alert("Post deleted successfully.");
+          } else {
+            const error = await response.json();
+            alert(`Error deleting post: ${error.error}`);
+          }
+        } catch (err) {
+          console.error("Error deleting post:", err);
+          alert("An unexpected error occurred while deleting the post.");
+        }
+      }
+
+      async function addReply(event, postId) {
+        event.preventDefault();
+
+        const replyContent = event.target.querySelector("textarea").value;
+
+        try {
+          const response = await fetch(`/api/posts/${postId}/replies`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: replyContent }),
+          });
+
+          if (response.ok) {
+            const newReply = await response.json();
+            const replyContainer = document.getElementById(`replies-${postId}`);
+            const replyHTML = `
+        <div class="reply">
+          <p>${newReply.content}</p>
+          <div class="reply-meta">
+            <span>Posted by <strong>${newReply.author}</strong> on ${new Date(
+              newReply.timestamp
+            ).toLocaleString()}</span>
+          </div>
+        </div>
+      `;
+            replyContainer.insertAdjacentHTML("beforeend", replyHTML);
+            event.target.reset(); // Clear the textarea
+          } else {
+            alert("Failed to add reply.");
+          }
+        } catch (error) {
+          console.error("Error adding reply:", error);
+          alert("An error occurred while adding the reply.");
+        }
+      }
+
+      async function deleteReply(postId, replyId) {
+        try {
+          const response = await fetch(
+            `/api/posts/${postId}/replies/${replyId}`,
+            {
+              method: "DELETE",
+            }
+          );
+
+          if (response.ok) {
+            // Remove the reply from the DOM
+            document.getElementById(`reply-${replyId}`).remove();
+            alert("Reply deleted successfully.");
+          } else {
+            const error = await response.json();
+            alert(`Error deleting reply: ${error.error}`);
+          }
+        } catch (err) {
+          console.error("Error deleting reply:", err);
+          alert("An unexpected error occurred while deleting the reply.");
+        }
+      }
+
+      document
+        .getElementById("new-post-form")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const title = document.getElementById("title").value;
+          const content = document.getElementById("content").value;
+
+          const response = await fetch("/api/posts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, content }),
+          });
+
+          if (response.ok) {
+            const newPost = await response.json();
+            addPostToDOM(newPost);
+            closeModal();
+          }
+        });
+
+      document
+        .getElementById("create-post-button")
+        .addEventListener("click", () => {
+          document.getElementById("new-post-modal").style.display = "block";
+        });
+
+      function closeModal() {
+        document.getElementById("new-post-modal").style.display = "none";
+      }
+
+      fetchPosts();
+    </script>
+  </body>
+  >
+</html>
